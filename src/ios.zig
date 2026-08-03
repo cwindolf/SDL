@@ -12,24 +12,22 @@ pub fn build(
     build_config_h: *std.Build.Step.ConfigHeader,
 ) void {
     const upstream = b.dependency("sdl", .{});
-
-    // Add the platform specific dependency include paths
+    // _ = target;
     lib.root_module.addIncludePath(b.dependency("egl", .{}).path("api"));
     lib.root_module.addIncludePath(b.dependency("opengl", .{}).path("api"));
 
     root.addAppleSdkPathsToModule(b, target, lib.root_module);
 
     // Link with the platform specific system frameworks
-    lib.root_module.linkFramework("Cocoa", .{});
-    lib.root_module.linkFramework("IOKit", .{});
-    lib.root_module.linkFramework("ForceFeedback", .{});
+    lib.root_module.linkFramework("UIKit", .{});
+    lib.root_module.linkFramework("UIUtilities", .{});
+    lib.root_module.linkFramework("CoreMotion", .{});
     lib.root_module.linkFramework("CoreVideo", .{});
     lib.root_module.linkFramework("CoreAudio", .{});
     lib.root_module.linkFramework("CoreHaptics", .{});
     lib.root_module.linkFramework("CoreFoundation", .{});
     lib.root_module.linkFramework("CoreMedia", .{});
     lib.root_module.linkFramework("CoreGraphics", .{});
-    lib.root_module.linkFramework("Carbon", .{});
     lib.root_module.linkFramework("Metal", .{});
     lib.root_module.linkFramework("QuartzCore", .{});
     lib.root_module.linkFramework("AudioToolbox", .{});
@@ -38,12 +36,13 @@ pub fn build(
     lib.root_module.linkFramework("GameController", .{});
     lib.root_module.linkFramework("CoreBluetooth", .{});
     lib.root_module.linkFramework("UniformTypeIdentifiers", .{});
-    lib.root_module.linkSystemLibrary("iconv", .{});
+    lib.root_module.linkFramework("OpenGLES", .{});
+    // lib.root_module.linkSystemLibrary("iconv", .{});
 
     // Add the platform specific sources
     const objc_flags = root.flags.* ++ [_][]const u8{"-fobjc-arc"};
     lib.root_module.addCSourceFiles(.{
-        .files = &(sources.cocoa ++ sources.darwin ++ sources.mac ++ sources.unix ++ sources.pthread),
+        .files = &(sources.uikit ++ sources.darwin ++ sources.ios ++ sources.unix ++ sources.pthread),
         .root = upstream.path("src"),
         .flags = &objc_flags,
     });
@@ -52,33 +51,29 @@ pub fn build(
     build_config_h.addValues(.{
         .HAVE_GCC_ATOMICS = 1,
 
-        // Useful headers
-        .HAVE_FLOAT_H = 1,
-        .HAVE_STDARG_H = 1,
-        .HAVE_STDDEF_H = 1,
-        .HAVE_STDINT_H = 1,
-        .HAVE_LIBC = 1,
         .HAVE_ALLOCA_H = 1,
+        .HAVE_FLOAT_H = 1,
         .HAVE_INTTYPES_H = 1,
         .HAVE_LIMITS_H = 1,
         .HAVE_MATH_H = 1,
         .HAVE_SIGNAL_H = 1,
+        .HAVE_STDARG_H = 1,
+        .HAVE_STDDEF_H = 1,
+        .HAVE_STDINT_H = 1,
         .HAVE_STDIO_H = 1,
         .HAVE_STDLIB_H = 1,
-        .HAVE_STRINGS_H = 1,
         .HAVE_STRING_H = 1,
         .HAVE_SYS_TYPES_H = 1,
         .HAVE_WCHAR_H = 1,
 
         // C library functions
+        .HAVE_LIBC = 1,
         .HAVE_DLOPEN = 1,
         .HAVE_MALLOC = 1,
-        // .HAVE_CALLOC = 1,
-        // .HAVE_REALLOC = 1,
-        // .HAVE_FREE = 1,
         .HAVE_GETENV = 1,
-        .HAVE_SETENV = 1,
+        .HAVE_GETHOSTNAME = 1,
         .HAVE_PUTENV = 1,
+        .HAVE_SETENV = 1,
         .HAVE_UNSETENV = 1,
         .HAVE_ABS = 1,
         .HAVE_BCOPY = 1,
@@ -86,12 +81,9 @@ pub fn build(
         .HAVE_MEMCPY = 1,
         .HAVE_MEMMOVE = 1,
         .HAVE_MEMCMP = 1,
-        .HAVE_WCSLEN = 1,
-        .HAVE_WCSNLEN = 1,
-        .HAVE_WCSCMP = 1,
-        .HAVE_WCSNCMP = 1,
         .HAVE_STRLEN = 1,
-        .HAVE_STRNLEN = 1,
+        .HAVE_STRLCPY = 1,
+        .HAVE_STRLCAT = 1,
         .HAVE_STRCHR = 1,
         .HAVE_STRRCHR = 1,
         .HAVE_STRSTR = 1,
@@ -131,10 +123,8 @@ pub fn build(
         .HAVE_FMOD = 1,
         .HAVE_FMODF = 1,
         .HAVE_ISINF = 1,
-        .HAVE_ISINFF = 1,
         .HAVE_ISINF_FLOAT_MACRO = 1,
         .HAVE_ISNAN = 1,
-        .HAVE_ISNANF = 1,
         .HAVE_ISNAN_FLOAT_MACRO = 1,
         .HAVE_LOG = 1,
         .HAVE_LOGF = 1,
@@ -158,97 +148,90 @@ pub fn build(
         .HAVE_TANF = 1,
         .HAVE_TRUNC = 1,
         .HAVE_TRUNCF = 1,
-        .HAVE_FSEEKO = 1,
         .HAVE_SIGACTION = 1,
-        .HAVE_SA_SIGACTION = 1,
         .HAVE_SETJMP = 1,
         .HAVE_NANOSLEEP = 1,
         .HAVE_GMTIME_R = 1,
         .HAVE_LOCALTIME_R = 1,
         .HAVE_NL_LANGINFO = 1,
         .HAVE_SYSCONF = 1,
-        .HAVE_CLOCK_GETTIME = 1,
-        .HAVE_GETPAGESIZE = 1,
-        // .HAVE_MPROTECT = 1,
-        .HAVE_PTHREAD_SETNAME_NP = 1,
-        .HAVE_SEM_TIMEDWAIT = 1,
-        // .HAVE_SYSCTL = 1,
         .HAVE_SYSCTLBYNAME = 1,
         .HAVE_O_CLOEXEC = 1,
-        .USE_POSIX_SPAWN = 1,
 
-        // Enable various audio drivers
+        // enable iPhone version of Core Audio driver
         .SDL_AUDIO_DRIVER_COREAUDIO = 1,
-        .SDL_AUDIO_DRIVER_DISK = 1,
+        // Enable the dummy audio driver (src/audio/dummy/\*.c)
         .SDL_AUDIO_DRIVER_DUMMY = 1,
 
-        // Enable various input drivers
-        .SDL_JOYSTICK_HIDAPI = 1,
-        .SDL_JOYSTICK_IOKIT = 1,
+        // Enable the stub haptic driver (src/haptic/dummy/\*.c)
+        .SDL_HAPTIC_DUMMY = 1,
+
+        // Enable joystick support
+        // Only enable HIDAPI support if you want to support Steam Controllers on iOS and tvOS
         .SDL_JOYSTICK_MFI = 1,
         .SDL_JOYSTICK_VIRTUAL = 1,
-        .SDL_HAPTIC_IOKIT = 1,
 
         // Enable various process implementations
-        .SDL_PROCESS_POSIX = 1,
+        .SDL_PROCESS_DUMMY = 1,
 
-        // Enable the sensor driver
-        .SDL_SENSOR_DUMMY = 1,
+        // Enable the CoreMotion sensor driver
+        .SDL_SENSOR_COREMOTION = 1,
 
-        // Enable various shared object loading systems
+        // Enable Unix style SO loading
         .SDL_LOADSO_DLOPEN = 1,
 
         // Enable various threading systems
         .SDL_THREAD_PTHREAD = 1,
         .SDL_THREAD_PTHREAD_RECURSIVE_MUTEX = 1,
 
-        // Enable various RTC systems
+        // Enable various RTC system
         .SDL_TIME_UNIX = 1,
 
         // Enable various timer systems
         .SDL_TIMER_UNIX = 1,
 
-        // Enable various video drivers
-        .SDL_VIDEO_DRIVER_COCOA = 1,
+        // Supported video drivers
+        .SDL_VIDEO_DRIVER_UIKIT = 1,
         .SDL_VIDEO_DRIVER_DUMMY = 1,
 
-        // Enable video render APIs
-        .SDL_VIDEO_RENDER_METAL = 1,
-        .SDL_VIDEO_RENDER_GPU = 1,
-        .SDL_VIDEO_RENDER_OGL = 1,
+        // .SDL_PLATFORM_SUPPORTS_METAL = 1,
+        .SDL_VIDEO_OPENGL_ES2 = 1,
+        .SDL_VIDEO_OPENGL_ES = 1,
         .SDL_VIDEO_RENDER_OGL_ES2 = 1,
 
-        // Enable OpenGL support
-        .SDL_VIDEO_OPENGL = 1,
-        .SDL_VIDEO_OPENGL_CGL = 1,
-        .SDL_VIDEO_OPENGL_EGL = 1,
-        .SDL_VIDEO_OPENGL_ES2 = 1,
-
-        // Enable Vulkan support
-        .SDL_VIDEO_VULKAN = 1,
-
-        // Enable Metal support
         .SDL_VIDEO_METAL = 1,
-
-        // Enable GPU support
+        .SDL_VIDEO_VULKAN = 1,
         .SDL_GPU_METAL = 1,
+        .SDL_GPU_VULKAN = 1,
+        .SDL_VIDEO_RENDER_METAL = 1,
+        .SDL_VIDEO_RENDER_GPU = 1,
 
         // Enable system power support
-        .SDL_POWER_MACOSX = 1,
+        .SDL_POWER_UIKIT = 1,
 
-        // Enable filesystem support
+        // enable iPhone keyboard support
+        .SDL_IPHONE_KEYBOARD = 1,
+
+        // enable iOS extended launch screen
+        .SDL_IPHONE_LAUNCHSCREEN = 1,
+
+        // enable filesystem support
         .SDL_FILESYSTEM_COCOA = 1,
         .SDL_FSOPS_POSIX = 1,
 
-        // Enable camera driver
-        .SDL_CAMERA_DRIVER_COREMEDIA = 1,
         .SDL_CAMERA_DRIVER_DUMMY = 1,
 
-        // Enable Steam storage
-        .SDL_STORAGE_STEAM = 1,
+        // Enable dialog subsystem
+        .SDL_DIALOG_DUMMY = 1,
 
-        // Whether SDL_DYNAMIC_API needs dlopen
-        .DYNAPI_NEEDS_DLOPEN = 1,
+        // Enable tray subsystem
+        .SDL_TRAY_DUMMY = 1,
+
+        // Disable ARM SVE2 intrinsics until we confirm they're available on all Apple mobile and TV hardware
+        // .SDL_DISABLE_SVE2 = 1,
+
+        // Enable steam storage
+        .SDL_STORAGE_STEAM = 1,
 
         // Unused
         .SDL_AUDIO_DRIVER_ALSA_DYNAMIC = "",

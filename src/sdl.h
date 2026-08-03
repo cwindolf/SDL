@@ -51,6 +51,3 @@
 #include <SDL3/SDL_opengl.h>
 #include <SDL3/SDL_egl.h>
 #include <SDL3/SDL_opengles2.h>
-
-// I want to use callbacks
-#include <SDL3/SDL_main.h>

@@ -2,6 +2,7 @@ const std = @import("std");
 const linux = @import("src/linux.zig");
 const windows = @import("src/windows.zig");
 const macos = @import("src/macos.zig");
+const ios = @import("src/ios.zig");
 const build_zon = @import("build.zig.zon");
 const Translator = @import("translate_c").Translator;
 
@@ -36,6 +37,11 @@ pub fn build(b: *std.Build) !void {
         ,
     ) orelse .static;
 
+    const main_callbacks = b.option(bool, "main_callbacks",
+        \\build SDL3_main to enter the app through SDL_AppInit/Iterate/Event/Quit rather
+        \\than a classic SDL_main, defaults to false
+    ) orelse false;
+
     // Create the library
     const lib = b.addLibrary(.{
         .name = "SDL3",
@@ -45,8 +51,7 @@ pub fn build(b: *std.Build) !void {
             .link_libc = true,
         }),
         .linkage = linkage,
-        .version = comptime std.SemanticVersion.parse(build_zon.dependencies.sdl.so_version)
-            catch unreachable,
+        .version = comptime std.SemanticVersion.parse(build_zon.dependencies.sdl.so_version) catch unreachable,
     });
     switch (linkage) {
         .dynamic => {
@@ -74,6 +79,23 @@ pub fn build(b: *std.Build) !void {
         .root = upstream.path("src"),
         .flags = flags,
     });
+
+    const main_lib = b.addLibrary(.{
+        .name = "SDL3_main",
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        }),
+        .linkage = .static,
+    });
+    main_lib.root_module.addIncludePath(upstream.path("include"));
+    if (main_callbacks) {
+        main_lib.root_module.addCMacro("SDL_MAIN_USE_CALLBACKS", "1");
+    }
+    main_lib.root_module.addCSourceFile(.{ .file = b.path("src/sdl_main.c") });
+    addAppleSdkPathsToModule(b, target.result, main_lib.root_module);
+    b.installArtifact(main_lib);
 
     if (default_target_config) {
         const build_config_h = b.addConfigHeader(.{
@@ -104,6 +126,7 @@ pub fn build(b: *std.Build) !void {
             .linux => linux.build(b, target.result, lib, build_config_h),
             .windows => windows.build(b, target.result, lib, build_config_h),
             .macos => macos.build(b, target.result, lib, build_config_h),
+            .ios => ios.build(b, target.result, lib, build_config_h),
             else => @panic("target has no default config"),
         }
     }
@@ -125,11 +148,16 @@ pub fn build(b: *std.Build) !void {
             else => optimize,
         },
     });
+
     translator.defineCMacro("USING_GENERATED_CONFIG_H", "1");
     translator.addIncludePath(upstream.path("include"));
     translator.addIncludePath(upstream.path("src/video/khronos"));
     translator.mod.linkLibrary(lib);
     try b.modules.putNoClobber(b.graph.arena, "sdl3", translator.mod);
+    addAppleSdkPathsToTranslator(b, target.result, translator);
+    if (target.result.os.tag == .ios) {
+        translator.defineCMacro("TARGET_OS_IPHONE", "1");
+    }
 
     // Add the example
     const example = b.addExecutable(.{
@@ -148,4 +176,28 @@ pub fn build(b: *std.Build) !void {
     const run_example = b.addRunArtifact(example);
     const run_step = b.step("run-example", "Run the example app");
     run_step.dependOn(&run_example.step);
+}
+
+pub fn addAppleSdkPathsToTranslator(b: *std.Build, target: std.Target, translator: Translator) void {
+    if (!target.os.tag.isDarwin()) return;
+
+    const sdk = std.zig.system.darwin.getSdk(b.allocator, b.graph.io, &target) orelse
+        @panic("Couldn't detect Apple SDK");
+
+    translator.addIncludePath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "usr/include" }) });
+    translator.addSystemFrameworkPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "System/Library/Frameworks" }) });
+    translator.addSystemFrameworkPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "System/Library/SubFrameworks" }) });
+    translator.addIncludePath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "usr/lib" }) });
+}
+
+pub fn addAppleSdkPathsToModule(b: *std.Build, target: std.Target, module: *std.Build.Module) void {
+    if (!target.os.tag.isDarwin()) return;
+
+    const sdk = std.zig.system.darwin.getSdk(b.allocator, b.graph.io, &target) orelse
+        @panic("Couldn't detect Apple SDK");
+
+    module.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "usr/include" }) });
+    module.addSystemFrameworkPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "System/Library/Frameworks" }) });
+    module.addSystemFrameworkPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "System/Library/SubFrameworks" }) });
+    module.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "usr/lib" }) });
 }
