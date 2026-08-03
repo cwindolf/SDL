@@ -20,7 +20,6 @@ pub fn build(
 
     // Link with the platform specific system frameworks
     lib.root_module.linkFramework("UIKit", .{});
-    lib.root_module.linkFramework("UIUtilities", .{});
     lib.root_module.linkFramework("CoreMotion", .{});
     lib.root_module.linkFramework("CoreVideo", .{});
     lib.root_module.linkFramework("CoreAudio", .{});

@@ -42,6 +42,8 @@ pub fn build(b: *std.Build) !void {
         \\than a classic SDL_main, defaults to false
     ) orelse false;
 
+    const can_san = target.result.os.tag != .ios;
+
     // Create the library
     const lib = b.addLibrary(.{
         .name = "SDL3",
@@ -49,6 +51,7 @@ pub fn build(b: *std.Build) !void {
             .target = target,
             .optimize = optimize,
             .link_libc = true,
+            .sanitize_c = if (can_san) null else .off,
         }),
         .linkage = linkage,
         .version = comptime std.SemanticVersion.parse(build_zon.dependencies.sdl.so_version) catch unreachable,
@@ -86,6 +89,7 @@ pub fn build(b: *std.Build) !void {
             .target = target,
             .optimize = optimize,
             .link_libc = true,
+            .sanitize_c = if (can_san) null else .off,
         }),
         .linkage = .static,
     });
