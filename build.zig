@@ -105,23 +105,23 @@ pub fn build(b: *std.Build) !void {
         .flags = flags,
     });
 
-    const main_lib = b.addLibrary(.{
-        .name = "SDL3_main",
-        .root_module = b.createModule(.{
-            .target = target,
-            .optimize = optimize,
-            .link_libc = true,
-        }),
-        .linkage = .static,
-    });
-    main_lib.root_module.addIncludePath(upstream.path("include"));
     if (main_callbacks) {
-        main_lib.root_module.addCMacro("SDL_MAIN_USE_CALLBACKS", "1");
+        const sdl_main_lib = b.addLibrary(.{
+            .name = "SDL3_main",
+            .root_module = b.createModule(.{
+                .target = target,
+                .optimize = optimize,
+                .link_libc = true,
+            }),
+            .linkage = .static,
+        });
+        sdl_main_lib.root_module.addIncludePath(upstream.path("include"));
+        sdl_main_lib.root_module.addCMacro("SDL_MAIN_USE_CALLBACKS", "1");
+        sdl_main_lib.root_module.addCSourceFile(.{ .file = b.path("src/sdl_main.c") });
+        if (system_paths.include) |p| sdl_main_lib.root_module.addSystemIncludePath(p);
+        if (system_paths.framework) |p| sdl_main_lib.root_module.addSystemFrameworkPath(p);
+        b.installArtifact(sdl_main_lib);
     }
-    main_lib.root_module.addCSourceFile(.{ .file = b.path("src/sdl_main.c") });
-    if (system_paths.include) |p| main_lib.root_module.addSystemIncludePath(p);
-    if (system_paths.framework) |p| main_lib.root_module.addSystemFrameworkPath(p);
-    b.installArtifact(main_lib);
 
     if (default_target_config) {
         const build_config_h = b.addConfigHeader(.{
