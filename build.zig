@@ -21,7 +21,7 @@ pub const SystemPaths = struct {
     framework: ?std.Build.LazyPath,
     library: ?std.Build.LazyPath,
 
-    pub fn print_missing_system_path_option(path: ?std.Build.LazyPath, comptime flag: []const u8, comptime platform: []const u8) std.Build.LazyPath {
+    pub fn printMissingSystemPathOption(path: ?std.Build.LazyPath, comptime flag: []const u8, comptime platform: []const u8) std.Build.LazyPath {
         return path orelse {
             std.log.err("'-D" ++ flag ++ "' is required when building SDL for " ++ platform, .{});
             std.process.exit(1);
@@ -51,26 +51,20 @@ pub fn build(b: *std.Build) !void {
         ,
     ) orelse .static;
 
+    const system_paths: SystemPaths = .{
+        .include = b.option(std.Build.LazyPath, "include_path", "SDK include dir, e.g. $(xcrun --sdk iphoneos --show-sdk-path)/usr/include or <ndk sysroot>/usr/include"),
+        .framework = b.option(std.Build.LazyPath, "framework_path", "SDK framework dir, e.g. $(xcrun --sdk iphoneos --show-sdk-path)/System/Library/Frameworks"),
+        .library = b.option(std.Build.LazyPath, "library_path", "SDK library dir, e.g. $(xcrun --sdk iphoneos --show-sdk-path)/usr/lib"),
+    };
+
     const main_callbacks = b.option(bool, "main_callbacks",
         \\build SDL3_main to enter the app through SDL_AppInit/Iterate/Event/Quit rather
         \\than a classic SDL_main, defaults to false
     ) orelse false;
 
-    const can_san = target.result.os.tag != .ios;
-
-    // Cross-compiling to a target whose SDK isn't bundled with Zig (iOS, Android) needs the
-    // SDK's headers/frameworks/libs passed in explicitly. Scoped to the SDL library only, unlike
-    // `--sysroot` this does not re-roots paths across the whole build graph.
-    // On Apple, if paths are not passed explicitly then fall back to the SDK found via `xcrun`.
-    const system_paths = withAppleSdkFallback(b, target.result, .{
-        .include = b.option(std.Build.LazyPath, "include_path", "SDK include dir, e.g. $(xcrun --sdk iphoneos --show-sdk-path)/usr/include or <ndk sysroot>/usr/include"),
-        .framework = b.option(std.Build.LazyPath, "framework_path", "SDK framework dir, e.g. $(xcrun --sdk iphoneos --show-sdk-path)/System/Library/Frameworks"),
-        .library = b.option(std.Build.LazyPath, "library_path", "SDK library dir, e.g. $(xcrun --sdk iphoneos --show-sdk-path)/usr/lib"),
-    });
-
     // Get the SO version. This is the same as the SDL version, but the major version is elided
     // since it's baked into the name. This mirrors the official build process.
-    var sdl_so_version = comptime std.SemanticVersion.parse(build_zon.dependencies.sdl.version) catch unreachable;
+    var sdl_so_version = comptime std.SemanticVersion.parse(build_zon.dependencies.sdl.upstream_version) catch unreachable;
     assert(sdl_so_version.major == 3);
     sdl_so_version.major = 0;
 
@@ -81,7 +75,6 @@ pub fn build(b: *std.Build) !void {
             .target = target,
             .optimize = optimize,
             .link_libc = true,
-            .sanitize_c = if (can_san) null else .off,
         }),
         .linkage = linkage,
         .version = sdl_so_version,
@@ -118,7 +111,6 @@ pub fn build(b: *std.Build) !void {
             .target = target,
             .optimize = optimize,
             .link_libc = true,
-            .sanitize_c = if (can_san) null else .off,
         }),
         .linkage = .static,
     });
@@ -127,7 +119,8 @@ pub fn build(b: *std.Build) !void {
         main_lib.root_module.addCMacro("SDL_MAIN_USE_CALLBACKS", "1");
     }
     main_lib.root_module.addCSourceFile(.{ .file = b.path("src/sdl_main.c") });
-    addSystemPathsToModule(b, main_lib.root_module, system_paths);
+    if (system_paths.include) |p| main_lib.root_module.addSystemIncludePath(p);
+    if (system_paths.framework) |p| main_lib.root_module.addSystemFrameworkPath(p);
     b.installArtifact(main_lib);
 
     if (default_target_config) {
@@ -161,7 +154,7 @@ pub fn build(b: *std.Build) !void {
             else
                 linux.build(b, target.result, lib, build_config_h),
             .windows => windows.build(b, target.result, lib, build_config_h),
-            .macos => macos.build(b, target.result, lib, build_config_h),
+            .macos => macos.build(b, target.result, lib, build_config_h, system_paths),
             .ios => ios.build(b, target.result, lib, build_config_h, system_paths),
             else => @panic("target has no default config"),
         }
@@ -179,8 +172,12 @@ pub fn build(b: *std.Build) !void {
     translate_c.defineCMacro("USING_GENERATED_CONFIG_H", "1");
     translate_c.addIncludePath(upstream.path("include"));
     translate_c.addIncludePath(upstream.path("src/video/khronos"));
-    addSystemPathsToTranslateC(b, translate_c, system_paths);
+    if (system_paths.include) |p| translate_c.addSystemIncludePath(p);
+    if (system_paths.framework) |p| translate_c.addSystemFrameworkPath(p);
     const module = translate_c.addModule("sdl3");
+    if (system_paths.include) |p| module.addSystemIncludePath(p);
+    if (system_paths.framework) |p| module.addSystemFrameworkPath(p);
+    if (system_paths.library) |p| module.addLibraryPath(p);
     module.linkLibrary(lib);
 
     // Add the example
@@ -233,47 +230,4 @@ pub fn addDepIncludePath(
     if (lazyDependency(&lib.step, name, args)) |dep| {
         lib.root_module.addIncludePath(dep.path(sub_path));
     }
-}
-
-/// Fill in any of `paths` from the SDK found with `xcrun`. Left unset outside Apple or if no SDK is found.
-pub fn withAppleSdkFallback(b: *std.Build, target: std.Target, paths: SystemPaths) SystemPaths {
-    if (!target.os.tag.isDarwin()) return paths;
-    if (paths.include != null and paths.framework != null) return paths;
-
-    const sdk = std.zig.system.darwin.getSdk(b.allocator, b.graph.io, &target) orelse return paths;
-
-    return .{
-        .include = paths.include orelse .{ .cwd_relative = b.pathJoin(&.{ sdk, "usr/include" }) },
-        .framework = paths.framework orelse .{ .cwd_relative = b.pathJoin(&.{ sdk, "System/Library/Frameworks" }) },
-        .library = paths.library orelse .{ .cwd_relative = b.pathJoin(&.{ sdk, "usr/lib" }) },
-    };
-}
-
-fn addSystemPathsToModule(b: *std.Build, module: *std.Build.Module, paths: SystemPaths) void {
-    if (paths.include) |p| module.addSystemIncludePath(p);
-    if (paths.framework) |p| {
-        module.addSystemFrameworkPath(p);
-        module.addSystemFrameworkPath(p.dirname().path(b, "SubFrameworks"));
-    }
-    if (paths.library) |p| module.addLibraryPath(p);
-}
-
-fn addSystemPathsToTranslateC(b: *std.Build, translate_c: *std.Build.Step.TranslateC, paths: SystemPaths) void {
-    if (paths.include) |p| translate_c.addSystemIncludePath(p);
-    if (paths.framework) |p| {
-        translate_c.addSystemFrameworkPath(p);
-        translate_c.addSystemFrameworkPath(p.dirname().path(b, "SubFrameworks"));
-    }
-}
-
-pub fn addAppleSdkPathsToModule(b: *std.Build, target: std.Target, module: *std.Build.Module) void {
-    if (!target.os.tag.isDarwin()) return;
-
-    const sdk = std.zig.system.darwin.getSdk(b.allocator, b.graph.io, &target) orelse
-        @panic("Couldn't detect Apple SDK");
-
-    module.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "usr/include" }) });
-    module.addSystemFrameworkPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "System/Library/Frameworks" }) });
-    module.addSystemFrameworkPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "System/Library/SubFrameworks" }) });
-    module.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "usr/lib" }) });
 }
