@@ -105,6 +105,7 @@ pub fn build(b: *std.Build) !void {
         .flags = flags,
     });
 
+    var maybe_sdl_main_lib: ?*std.Build.Step.Compile = null;
     if (main_callbacks) {
         const sdl_main_lib = b.addLibrary(.{
             .name = "SDL3_main",
@@ -121,6 +122,7 @@ pub fn build(b: *std.Build) !void {
         if (system_paths.include) |p| sdl_main_lib.root_module.addSystemIncludePath(p);
         if (system_paths.framework) |p| sdl_main_lib.root_module.addSystemFrameworkPath(p);
         b.installArtifact(sdl_main_lib);
+        maybe_sdl_main_lib = sdl_main_lib;
     }
 
     if (default_target_config) {
@@ -197,6 +199,30 @@ pub fn build(b: *std.Build) !void {
     const run_example = b.addRunArtifact(example);
     const run_step = b.step("run-example", "Run the example app");
     run_step.dependOn(&run_example.step);
+
+    // Add a callbacks example. Note, it will fail if no -Dmain_callbacks.
+    const build_callbacks_example_step = b.step("callbacks-example", "Build the callbacks example app (requires -Dmain_callbacks)");
+    const run_callbacks_step = b.step("run-callbacks-example", "Run the callbacks example app (requires -Dmain_callbacks)");
+    if (maybe_sdl_main_lib) |sdl_main_lib| {
+        const callbacks_example = b.addExecutable(.{
+            .name = "callbacks_example",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/callbacks_example.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+        });
+        callbacks_example.root_module.addImport("sdl3", module);
+        callbacks_example.root_module.linkLibrary(sdl_main_lib);
+        build_callbacks_example_step.dependOn(&callbacks_example.step);
+
+        const run_callbacks_example = b.addRunArtifact(callbacks_example);
+        run_callbacks_step.dependOn(&run_callbacks_example.step);
+    } else {
+        const fail = b.addFail("The callbacks example requires -Dmain_callbacks");
+        build_callbacks_example_step.dependOn(&fail.step);
+        run_callbacks_step.dependOn(&fail.step);
+    }
 }
 
 /// Fetches a lazy dependency, unless provided via `-fsys`.
